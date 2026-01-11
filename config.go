@@ -72,7 +72,7 @@ func DefaultConfig() *Config {
 
 	// --- SDR 解调 ---
 	cfg.SDR.LpfAlpha = 0.05
-	cfg.SDR.AfcEnabled = true
+	cfg.SDR.AfcEnabled = false
 	cfg.SDR.AfcGain = 0.0002
 	cfg.SDR.AfcDeadband = 1.0
 	cfg.SDR.FilterBW = 50.0 // 恢复为 50Hz 截止频率 (100Hz 带宽)

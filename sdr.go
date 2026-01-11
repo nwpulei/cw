@@ -6,70 +6,66 @@ import (
 )
 
 // SDRDemodulator implements Quadrature Down-Conversion (I/Q Demodulation)
-// It mixes the input signal with a local oscillator (LO) to extract the envelope
-// and performs Automatic Frequency Control (AFC) to track the signal.
 type SDRDemodulator struct {
-	// 配置
 	sampleRate float64
+	targetFreq float64 // [新增] 记录目标频率
+	afcEnabled bool    // [新增] 记录 AFC 开关状态
 
-	// Low Pass Filter state
-	lpfI *ButterworthFilter
-	lpfQ *ButterworthFilter
-	afc  *Filters.AFC
-	// Local Oscillator state
+	lpfI  *ButterworthFilter
+	lpfQ  *ButterworthFilter
+	afc   *Filters.AFC
 	phase float64
 }
 
-// NewSDRDemodulator creates a new SDR demodulator
 func NewSDRDemodulator(sampleRate, targetFreq float64, cfg *Config) *SDRDemodulator {
 	if cfg == nil {
 		cfg = DefaultConfig()
 	}
-	// 创建 4 阶巴特沃斯低通滤波器
 	sdr := &SDRDemodulator{
 		sampleRate: sampleRate,
-		lpfI:       NewButterworthLowpass(4, sampleRate, cfg.SDR.FilterBW),
-		lpfQ:       NewButterworthLowpass(4, sampleRate, cfg.SDR.FilterBW),
-		afc:        Filters.NewAFC(sampleRate, targetFreq),
-	}
+		targetFreq: targetFreq,         // [记录]
+		afcEnabled: cfg.SDR.AfcEnabled, // [记录] 听从 config 指挥
 
+		lpfI: NewButterworthLowpass(4, sampleRate, cfg.SDR.FilterBW),
+		lpfQ: NewButterworthLowpass(4, sampleRate, cfg.SDR.FilterBW),
+		afc:  Filters.NewAFC(sampleRate, targetFreq),
+	}
 	return sdr
 }
 
-// SetTargetFreq updates the base target frequency
 func (s *SDRDemodulator) SetTargetFreq(freq float64) {
+	s.targetFreq = freq // [更新]
 	s.afc.UpdateTargetFreq(freq)
-	// 重置滤波器状态
-	//cfg := DefaultConfig() // Get default config to access filter params
-	//s.lpfI = NewButterworthLowpass(4, s.sampleRate, cfg.SDR.FilterBW)
-	//s.lpfQ = NewButterworthLowpass(4, s.sampleRate, cfg.SDR.FilterBW)
+	// 滤波器重置代码已被正确移除，保持现状
 }
 
-// Process processes a single audio sample and returns the signal envelope
 func (s *SDRDemodulator) Process(sample float64) float64 {
-	// 1. Local Oscillator (LO) generation
+	// 1. LO generation
 	loI := math.Cos(s.phase)
 	loQ := math.Sin(s.phase)
 
-	// 2. Mixing (Down-conversion)
+	// 2. Mixing
 	mixI := sample * loI
 	mixQ := sample * loQ
 
-	// 3. Low Pass Filtering (LPF)
-	// 使用新的巴特沃斯滤波器
+	// 3. Low Pass Filtering
 	filteredI := s.lpfI.Process(mixI)
 	filteredQ := s.lpfQ.Process(mixQ)
 
-	//if n < 20 {
-	//	fmt.Printf("en %e,%e,%e,%e,%e,%e,%e,%e\n", s.phase, sample, loI, loQ, mixI, mixQ, filteredI, filteredQ)
-	//	n++
-	//}
-	// 4. Envelope Calculation
+	// 4. Envelope
 	envelope := 2.0 * math.Sqrt(filteredI*filteredI+filteredQ*filteredQ)
 
-	// 5. Automatic Frequency Control (AFC)
-	phaseInc := s.afc.Update(float64(filteredI), float64(filteredQ), envelope)
-	// Update LO phase for next sample
+	// 5. LO Phase Update (核心修复点)
+	var phaseInc float64
+	if s.afcEnabled {
+		// 只有开启时才询问 AFC
+		phaseInc = s.afc.Update(float64(filteredI), float64(filteredQ), envelope)
+	} else {
+		// 关闭时，直接计算固定的相位增量 (死锁频率)
+		// Inc = 2 * PI * Freq / SampleRate
+		phaseInc = 2.0 * math.Pi * s.targetFreq / s.sampleRate
+	}
+
 	s.updatePhase(phaseInc)
 
 	return envelope

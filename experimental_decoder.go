@@ -35,7 +35,7 @@ func NewExperimentalDecoder(sampleRate, targetFreq float64) *ExperimentalDecoder
 	debounceMs := 0.012
 	// 【解耦点】初始化施密特触发器
 	// 阈值 0.5/0.4, 去抖 12ms
-	trigger := Filters.NewSchmittTrigger(sampleRate, 0.5, 0.4, debounceMs)
+	trigger := Filters.NewSchmittTrigger(sampleRate, 0.2, 0.15, debounceMs)
 	lmodel := BeamDecoder.NewLanguageModel()
 	// 衰减系数 0.99995 (假设48kHz采样) 意味着峰值大约在 1-2秒内衰减一半
 	// 适合 CW 这种时断时续的信号
@@ -109,16 +109,19 @@ func (d *ExperimentalDecoder) processSample(sample float64) {
 
 	// 2. 定期更新阈值 (例如每 2 秒更新一次)
 	// 48000 * 2 = 96000
-	if d.processedCnt > 96000 {
+	if d.processedCnt > 24000 {
 		d.processedCnt = 0
 
 		// ★ 核心魔法：从历史中获取智慧
 		bestThresh, peak, noise := d.historyOpt.SuggestThreshold()
 
+		if bestThresh > 0.001 {
+			d.trigger.SetThresholds(bestThresh, bestThresh*0.8)
+		}
 		// 更新施密特触发器的阈值
 		// High = 最佳阈值
 		// Low  = 最佳阈值 * 0.8 (防止抖动)
-		d.trigger.SetThresholds(bestThresh, bestThresh*0.8)
+		//d.trigger.SetThresholds(bestThresh, bestThresh*0.8)
 
 		// 可选：打印调试信息，看看现在的决策是基于什么数据
 		fmt.Printf("[AUTO-TUNE] Noise: %.4f | Peak: %.4f | Set Thresh: %.4f\n", noise, peak, bestThresh)

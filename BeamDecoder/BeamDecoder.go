@@ -96,7 +96,7 @@ type BeamDecoder struct {
 func NewBeamDecoder(lm *LanguageModel) *BeamDecoder {
 	return &BeamDecoder{
 		lm:            lm,
-		beamWidth:     5,                                                     // 设为 5 到 10 即可，太大了没必要
+		beamWidth:     10,                                                    // 设为 5 到 10 即可，太大了没必要
 		paths:         []Path{{Sentence: "", LastChar: "", TotalScore: 0.0}}, // 初始状态：空路径
 		patterns:      Patterns,
 		statsAnalyzer: NewAnalyzer(20), // 引用全局的 Patterns
@@ -196,8 +196,8 @@ func CalculateEmissionScore_Advanced(signal []float64, pattern []float64, stats 
 		// --- 鲁棒性保护 (Safety Clamp) ---
 		// 极其重要！防止 sigma 为 0 (导致除零panic) 或 sigma 过小 (导致得分负无穷)
 		// 尤其是在刚开始没统计到足够数据时
-		if sigma < 0.1 {
-			sigma = 0.1
+		if sigma < 0.25 {
+			sigma = 0.25
 		}
 
 		// 如果信号质量极差，sigma 可能会变得巨大，导致所有分数都接近 0，无法区分

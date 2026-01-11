@@ -92,7 +92,7 @@ func (h *HistoryOptimizer) SuggestThreshold() (float64, float64, float64) {
 	// 经典算法：在对数域或线性域取中间值。
 	// 这里使用线性域的加权平均：底噪 + (动态范围 * 30%)
 	// 30% 是一个经验值，既能避开底噪毛刺，又能在信号衰落时保持锁定
-	threshold := noiseFloor + (signalPeak-noiseFloor)*0.3
+	threshold := noiseFloor + (signalPeak-noiseFloor)*0.2
 
 	return threshold, signalPeak, noiseFloor
 }
