@@ -326,11 +326,37 @@ func RunBenchmark(decoder Decoder) {
 			Text: baseText,
 			WPM:  25, SNR: 6.0, QSBRate: 0, QSBDepth: 0, Jitter: 0.15,
 		},
+		{
+			Name: "Level 3",
+			Text: baseText,
+			WPM:  30, SNR: 0.0, QSBRate: 0, QSBDepth: 0.8, Jitter: 0.05,
+		},
 
 		{
 			Name: "Level 3 (Hard)",
 			Text: baseText,
 			WPM:  30, SNR: 0.0, QSBRate: 1.0, QSBDepth: 0.8, Jitter: 0.15,
+		},
+		// [新增] 诊断 Case A: 只测抗噪 (0dB, No Fading)
+		{
+			Name:     "Diag A (Noise Only)",
+			Text:     baseText,
+			WPM:      30,
+			SNR:      0.0, // 极强噪声
+			Jitter:   0.15,
+			QSBRate:  0.0, // 关掉衰落
+			QSBDepth: 0.0, // 关掉衰落
+		},
+
+		// [新增] 诊断 Case B: 只测衰落 (High SNR, Deep Fading)
+		{
+			Name:     "Diag B (Fading Only)",
+			Text:     baseText,
+			WPM:      30,
+			SNR:      12.0, // 信号很干净
+			Jitter:   0.15,
+			QSBRate:  1.0, // 快衰落
+			QSBDepth: 0.8, // 极深衰落 (剩20%能量)
 		},
 	}
 

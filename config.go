@@ -90,7 +90,7 @@ func DefaultConfig() *Config {
 	cfg.Decoder.MinDotLen = 0.024 // 50 WPM
 	cfg.Decoder.MaxDotLen = 0.24  // 5 WPM
 
-	cfg.Decoder.MarkGlitchMs = 20
+	cfg.Decoder.MarkGlitchMs = 13
 	cfg.Decoder.SpaceGlitchMs = 20
 	cfg.Decoder.DotDashRatio = 2.2
 	cfg.Decoder.CharGapRatio = 1.5

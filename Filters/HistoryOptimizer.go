@@ -81,18 +81,17 @@ func (h *HistoryOptimizer) SuggestThreshold() (float64, float64, float64) {
 	signalIndex := int(float64(count) * 0.95)
 	signalPeak := data[signalIndex]
 
-	// C. 安全检查
+	// 安全检查
 	// 如果信号太弱 (峰值和底噪几乎一样)，说明没信号
-	if signalPeak < noiseFloor*1.5 {
-		// 默认返回一个稍高于底噪的值
-		return noiseFloor * 3.0, signalPeak, noiseFloor
+	if signalPeak < noiseFloor*1.1 {
+		return noiseFloor * 2.0, signalPeak, noiseFloor
 	}
 
 	// D. 计算最佳阈值 (Threshold)
 	// 经典算法：在对数域或线性域取中间值。
 	// 这里使用线性域的加权平均：底噪 + (动态范围 * 30%)
 	// 30% 是一个经验值，既能避开底噪毛刺，又能在信号衰落时保持锁定
-	threshold := noiseFloor + (signalPeak-noiseFloor)*0.2
+	threshold := noiseFloor + (signalPeak-noiseFloor)*0.18
 
 	return threshold, signalPeak, noiseFloor
 }

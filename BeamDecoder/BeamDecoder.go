@@ -196,8 +196,8 @@ func CalculateEmissionScore_Advanced(signal []float64, pattern []float64, stats 
 		// --- 鲁棒性保护 (Safety Clamp) ---
 		// 极其重要！防止 sigma 为 0 (导致除零panic) 或 sigma 过小 (导致得分负无穷)
 		// 尤其是在刚开始没统计到足够数据时
-		if sigma < 0.25 {
-			sigma = 0.25
+		if sigma < 0.35 {
+			sigma = 0.35
 		}
 
 		// 如果信号质量极差，sigma 可能会变得巨大，导致所有分数都接近 0，无法区分
