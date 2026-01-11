@@ -40,9 +40,9 @@ func NewSDRDemodulator(sampleRate, targetFreq float64, cfg *Config) *SDRDemodula
 func (s *SDRDemodulator) SetTargetFreq(freq float64) {
 	s.afc.UpdateTargetFreq(freq)
 	// 重置滤波器状态
-	cfg := DefaultConfig() // Get default config to access filter params
-	s.lpfI = NewButterworthLowpass(4, s.sampleRate, cfg.SDR.FilterBW)
-	s.lpfQ = NewButterworthLowpass(4, s.sampleRate, cfg.SDR.FilterBW)
+	//cfg := DefaultConfig() // Get default config to access filter params
+	//s.lpfI = NewButterworthLowpass(4, s.sampleRate, cfg.SDR.FilterBW)
+	//s.lpfQ = NewButterworthLowpass(4, s.sampleRate, cfg.SDR.FilterBW)
 }
 
 // Process processes a single audio sample and returns the signal envelope

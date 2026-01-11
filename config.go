@@ -79,7 +79,7 @@ func DefaultConfig() *Config {
 
 	// --- 解码逻辑 ---
 	cfg.Decoder.AgcEnabled = true
-	cfg.Decoder.AgcPeakDecay = 0.99995
+	cfg.Decoder.AgcPeakDecay = 0.9995
 	cfg.Decoder.AgcPeakFloor = 0.01
 	cfg.Decoder.AgcHighRatio = 0.5
 	cfg.Decoder.AgcLowRatio = 0.85
