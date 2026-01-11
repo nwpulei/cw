@@ -55,6 +55,7 @@ func (st *SchmittTrigger) Feed(envelope float64) *StateTransition {
 	st.totalSamples++
 
 	h, l := st.thresholder.Update(envelope)
+	//st.SetThresholds(h, l)
 	if st.totalSamples%200000 == 0 {
 		fmt.Printf("[DEBUG] hight%.1f,low,%.1f value%.2f\n", h, l, envelope)
 	}

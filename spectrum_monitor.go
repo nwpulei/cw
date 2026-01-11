@@ -130,8 +130,23 @@ func (sm *SpectrumMonitor) run() {
 					sm.hasLock = true
 					fmt.Printf("[MONITOR] Initial Lock: %.1f Hz (SNR: %.1f)\n", freq, db(snr))
 				} else {
+					// 计算频率偏差
+					diff := abs(freq - sm.smoothedFreq)
+					// 1. 如果偏差超过 20Hz (硬门限)，视为干扰或错误，直接忽略本次更新
+					//    除非 SNR 极高 (说明真的换台了)，否则保持不动
+					if diff > 20.0 && snr < 100.0 { // 100.0 linear approx 20dB
+						// 可选：打印日志调试
+						// fmt.Printf("[MONITOR] Ignored Jump: %.1f -> %.1f (Diff: %.1f)\n", sm.smoothedFreq, freq, diff)
+						return // 跳过本次循环，不更新 smoothedFreq
+					}
+					// 2. 如果偏差很小 (例如 < 2Hz)，可能是插值抖动，强制降低学习率，让数值更稳
+					currentAlpha := alpha
+					if diff < 2.0 {
+						currentAlpha = alpha * 0.1 // 极慢速微调
+					}
+
 					oldFreq := sm.smoothedFreq
-					sm.smoothedFreq = sm.smoothedFreq*(1-alpha) + freq*alpha
+					sm.smoothedFreq = sm.smoothedFreq*(1-currentAlpha) + freq*currentAlpha
 					// 只有当频率变化超过一定阈值时才打印，避免刷屏
 					if abs(sm.smoothedFreq-oldFreq) > 2.0 {
 						fmt.Printf("[MONITOR] Frequency Update: %.1f Hz %.1f Hz -> %.1f Hz (SNR: %.1f)\n", oldFreq, freq, sm.smoothedFreq, db(snr))

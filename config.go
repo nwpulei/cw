@@ -66,8 +66,8 @@ func DefaultConfig() *Config {
 	cfg.Monitor.MinFrequency = 600.0
 	cfg.Monitor.MaxFrequency = 900.0
 	cfg.Monitor.RequiredSNR = 40.0 // 10dB
-	cfg.Monitor.AlphaBase = 0.1
-	cfg.Monitor.AlphaGain = 0.01
+	cfg.Monitor.AlphaBase = 0.02
+	cfg.Monitor.AlphaGain = 0.005
 	cfg.Monitor.AlphaMax = 0.5
 
 	// --- SDR 解调 ---
@@ -75,7 +75,7 @@ func DefaultConfig() *Config {
 	cfg.SDR.AfcEnabled = true
 	cfg.SDR.AfcGain = 0.0002
 	cfg.SDR.AfcDeadband = 1.0
-	cfg.SDR.FilterBW = 100.0 // 恢复为 50Hz 截止频率 (100Hz 带宽)
+	cfg.SDR.FilterBW = 50.0 // 恢复为 50Hz 截止频率 (100Hz 带宽)
 
 	// --- 解码逻辑 ---
 	cfg.Decoder.AgcEnabled = true

@@ -297,7 +297,7 @@ type TestCase struct {
 
 func RunBenchmark(decoder Decoder) {
 	// 标准测试文本 (Paris standard)
-	baseText := "PARIS PARIS PARIS 73"
+	baseText := "PARIS PARIS PARIS 73 NI HAO HOW ARE YOU"
 	sampleRate := 48000
 
 	testCases := []TestCase{
@@ -312,6 +312,22 @@ func RunBenchmark(decoder Decoder) {
 			WPM:  25, SNR: 6.0, QSBRate: 0.2, QSBDepth: 0.3, Jitter: 0.05,
 		},
 		{
+			Name: "Level 2 (Medium)",
+			Text: baseText,
+			WPM:  25, SNR: 6.0, QSBRate: 0, QSBDepth: 0.8, Jitter: 0.05,
+		},
+		{
+			Name: "Level 2 (Medium)",
+			Text: baseText,
+			WPM:  25, SNR: 6.0, QSBRate: 1.0, QSBDepth: 0, Jitter: 0.05,
+		},
+		{
+			Name: "Level 2 (Medium)",
+			Text: baseText,
+			WPM:  25, SNR: 6.0, QSBRate: 0, QSBDepth: 0, Jitter: 0.15,
+		},
+
+		{
 			Name: "Level 3 (Hard)",
 			Text: baseText,
 			WPM:  30, SNR: 0.0, QSBRate: 1.0, QSBDepth: 0.8, Jitter: 0.15,
@@ -319,10 +335,11 @@ func RunBenchmark(decoder Decoder) {
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "LEVEL\tWPM\tSNR(dB)\tJITTER\tCER(%)\tTIME(ms)\tSTATUS")
-	fmt.Fprintln(w, "-----\t---\t-------\t------\t------\t--------\t------")
+	fmt.Fprintln(w, "LEVEL\tWPM\tSNR(dB)\tJITTER\tQSBRate\tQSBDepth\tCER(%)\tTIME(ms)\tSTATUS")
+	fmt.Fprintln(w, "-----\t---\t-------\t------\t------\t------\t------\t--------\t------")
 
 	for _, tc := range testCases {
+
 		t := cw.NewExperimentalDecoder(float64(sampleRate), 700)
 		md := MockDecoder{
 			decoder: t,
@@ -335,7 +352,7 @@ func RunBenchmark(decoder Decoder) {
 		}
 		t.SetOnDecoded(fn)
 		decoder = &md
-
+		//decoder = NewRealDecoderAdapter(48000, 700)
 		// 1. Setup Generator
 		gen := NewAudioGenerator(AudioConfig{
 			WPM:        tc.WPM,
@@ -380,8 +397,8 @@ func RunBenchmark(decoder Decoder) {
 			status = "FAIL"
 		} // 假设 10% CER 是阈值
 
-		fmt.Fprintf(w, "%s\t%.0f\t%.1f\t%.0f%%\t%.2f%%\t%d\t%s\n",
-			tc.Name, tc.WPM, tc.SNR, tc.Jitter*100, cer, elapsed.Milliseconds(), status)
+		fmt.Fprintf(w, "%s\t%.0f\t%.1f\t%.0f%%\t%.2f\t%.2f\t%.2f%%\t%d\t%s\n",
+			tc.Name, tc.WPM, tc.SNR, tc.Jitter*100, tc.QSBRate, tc.QSBDepth, cer, elapsed.Milliseconds(), status)
 	}
 	w.Flush()
 }
@@ -420,4 +437,47 @@ func getMorseTable() map[rune]string {
 		'5': ".....", '6': "-....", '7': "--...", '8': "---..", '9': "----.",
 		' ': " ", // Space handled separately but kept here for completeness
 	}
+}
+
+// RealDecoderAdapter 是一个适配器，将你的 ExperimentalDecoder 包装成测试工具需要的样子
+type RealDecoderAdapter struct {
+	decoder *cw.ExperimentalDecoder // 或者 *cw.ClusterDecoder
+	buffer  strings.Builder
+}
+
+// 构造函数
+func NewRealDecoderAdapter(sampleRate float64, freq float64) *RealDecoderAdapter {
+	// 初始化你的真实解码器
+	// 注意：这里使用的是你想要测试的那个解码器版本
+	realDecoder := cw.NewExperimentalDecoder(sampleRate, freq)
+
+	adapter := &RealDecoderAdapter{
+		decoder: realDecoder,
+	}
+
+	// 钩住回调函数，把输出的字符存到 buffer 里
+	realDecoder.SetOnDecoded(func(text string) {
+		adapter.buffer.WriteString(text)
+	})
+
+	return adapter
+}
+
+// 实现 Decoder 接口: 处理音频
+func (a *RealDecoderAdapter) ProcessAudioChunk(samples []float32) {
+	a.decoder.ProcessAudioChunk(samples)
+}
+
+// 实现 Decoder 接口: 获取结果
+func (a *RealDecoderAdapter) GetDecodedText() string {
+	// 停止解码器以刷新最后的缓存
+	a.decoder.Stop()
+	return a.buffer.String()
+}
+
+// 实现 Decoder 接口: 重置
+func (a *RealDecoderAdapter) Reset() {
+	a.buffer.Reset()
+	// 注意：如果 ExperimentalDecoder 内部有状态（如 AGC 历史），最好这里重新 new 一个，或者给它加一个 Reset 方法
+	// 为简单起见，我们在 RunBenchmark 循环里每次都 New 了一个新的 Adapter，所以这里可以留空
 }

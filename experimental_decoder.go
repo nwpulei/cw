@@ -20,6 +20,9 @@ type ExperimentalDecoder struct {
 	debugger      SignalDebugger
 	trigger       *Filters.SchmittTrigger
 	pitchDetector *PitchDetector
+
+	historyOpt   *Filters.HistoryOptimizer // 历史分析器
+	processedCnt int                       // 用于定期触发计算的计数器
 }
 
 // NewExperimentalDecoder creates the new decoder instance
@@ -38,6 +41,8 @@ func NewExperimentalDecoder(sampleRate, targetFreq float64) *ExperimentalDecoder
 	// 适合 CW 这种时断时续的信号
 	agc := Filters.NewMedianAGC()
 	sdr := NewSDRDemodulator(sampleRate, targetFreq, cfg)
+	// 初始化历史优化器，记录最近 30 秒
+	historyOpt := Filters.NewHistoryOptimizer(30.0, sampleRate)
 
 	pitch := NewPitchDetector(PitchDetectorConfig{
 		SampleRate:     sampleRate,
@@ -64,6 +69,7 @@ func NewExperimentalDecoder(sampleRate, targetFreq float64) *ExperimentalDecoder
 
 		debugger:      dbg,
 		pitchDetector: pitch,
+		historyOpt:    historyOpt,
 	}
 }
 
@@ -82,22 +88,44 @@ func (d *ExperimentalDecoder) ProcessAudioChunk(samples []float32) {
 		sampe64[i] = val
 	}
 
-	a, b := d.pitchDetector.Detect(sampe64)
-	if b == true {
-		d.UpdateTargetFreq(a)
-		//fmt.Printf("[debug] find %f\n", a)
-
-	}
+	//a, b := d.pitchDetector.Detect(sampe64)
+	//if b == true {
+	//	d.UpdateTargetFreq(a)
+	//	//fmt.Printf("[debug] find %f\n", a)
+	//
+	//}
 }
 
 func (d *ExperimentalDecoder) processSample(sample float64) {
 	d.samplesProcessed++
+	d.processedCnt++
 
 	// 1.Orthogonal Down-Conversion + Butterworth Filter
 	rawEnvelope := d.sdr.Process(sample)
+	// 注意：这里不需要再过 d.agc.Update 了，
+	// 因为我们要用历史统计来做更有智慧的 AGC。
+	// 直接把 rawEnvelope 喂给历史分析器即可。
+	d.historyOpt.Push(rawEnvelope)
+
+	// 2. 定期更新阈值 (例如每 2 秒更新一次)
+	// 48000 * 2 = 96000
+	if d.processedCnt > 96000 {
+		d.processedCnt = 0
+
+		// ★ 核心魔法：从历史中获取智慧
+		bestThresh, peak, noise := d.historyOpt.SuggestThreshold()
+
+		// 更新施密特触发器的阈值
+		// High = 最佳阈值
+		// Low  = 最佳阈值 * 0.8 (防止抖动)
+		d.trigger.SetThresholds(bestThresh, bestThresh*0.8)
+
+		// 可选：打印调试信息，看看现在的决策是基于什么数据
+		fmt.Printf("[AUTO-TUNE] Noise: %.4f | Peak: %.4f | Set Thresh: %.4f\n", noise, peak, bestThresh)
+	}
 
 	// 2. AGC Normalization (关键步骤)
-	envelope := d.agc.Update(rawEnvelope)
+	//envelope := d.agc.Update(rawEnvelope)
 
 	// 【调试插桩】如果还不工作，取消下面这行的注释，看看 envelope 到底是多少
 	//if d.samplesProcessed%1000 == 0 {
@@ -105,7 +133,7 @@ func (d *ExperimentalDecoder) processSample(sample float64) {
 	//}
 
 	// 3. 状态检测 (委托给 SchmittTrigger)
-	transition := d.trigger.Feed(envelope)
+	transition := d.trigger.Feed(rawEnvelope)
 
 	if transition != nil {
 		// 映射 bool -> BeamDecoder 枚举

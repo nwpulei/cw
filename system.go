@@ -3,6 +3,7 @@ package cw
 import (
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -34,16 +35,30 @@ type CWSystem struct {
 	// 回调
 	OnTextDecoded   func(text string) // 当解码出文本时回调
 	spectrumMonitor *SpectrumMonitor
+
+	// 新增状态字段
+	calibrationState int       // 0: 噪声校准, 1: 信号锁定, 2: 正在解码
+	noiseFloor       float64   // 测量到的噪声基底
+	noiseSampleCount int       // 已采样的噪声帧数
+	calibStartTime   time.Time // 校准开始时间
 }
+
+// 定义常量状态
+const (
+	StateNoiseCalib = 0
+	StateSignalLock = 1
+	StateDecoding   = 2
+)
 
 // NewCWSystem 创建系统实例
 func NewCWSystem() *CWSystem {
 	return &CWSystem{
-		cfg:             DefaultConfig(),
-		SampleRate:      48000,
-		AudioDeviceName: "USB Audio CODEC",
-		SerialPort:      "/dev/tty.SLAB_USBtoUART",
-		BaudRate:        115200,
+		cfg:              DefaultConfig(),
+		SampleRate:       48000,
+		AudioDeviceName:  "USB Audio CODEC",
+		SerialPort:       "/dev/tty.SLAB_USBtoUART",
+		BaudRate:         115200,
+		calibrationState: StateSignalLock, // 默认先做噪声校准
 	}
 }
 
@@ -88,7 +103,7 @@ func (s *CWSystem) Start() error {
 	s.analyzer = NewSpectrumAnalyzer(float64(s.SampleRate), 4096)
 
 	s.spectrumMonitor = NewSpectrumMonitor(float64(s.SampleRate), s.cfg, s.handleFrequencyUpdate)
-	//s.spectrumMonitor.Start()
+	s.spectrumMonitor.Start()
 	// 初始化录音 (仅在实时模式或显式要求时)
 	if s.recordFile != "" && s.replayFile == "" {
 		var err error
@@ -154,12 +169,115 @@ func (s *CWSystem) processAudioChunk(samples []float32) {
 		_ = s.wavWriter.WriteSamples(samples)
 	}
 	//s.spectrumMonitor.PushAudioData(samples)
-	//s.isCalibrated = true
-	// 校准或解码
-	if !s.isCalibrated {
+	////s.isCalibrated = true
+	//// 校准或解码
+	//if !s.isCalibrated {
+	//	s.runCalibration(samples)
+	//} else {
+	//	s.decoder.ProcessAudioChunk(samples)
+	//}
+	// 根据状态分发任务
+	switch s.calibrationState {
+	case StateNoiseCalib:
+		s.runNoiseCalibration(samples)
+	case StateSignalLock:
+		//s.runSignalSearch(samples)
 		s.runCalibration(samples)
-	} else {
+	case StateDecoding:
+		// 只有解码阶段才让 Decoder 和 SpectrumMonitor 工作
+		s.spectrumMonitor.PushAudioData(samples) // 如果恢复了 monitor
 		s.decoder.ProcessAudioChunk(samples)
+	}
+}
+
+// [新增] 阶段一：噪声采样校准
+func (s *CWSystem) runNoiseCalibration(samples []float32) {
+	// 累积音频能量 (RMS)
+	sumSquares := 0.0
+	for _, v := range samples {
+		sumSquares += float64(v * v)
+	}
+	rms := math.Sqrt(sumSquares / float64(len(samples)))
+
+	// 使用简单的移动平均来估算底噪
+	if s.noiseSampleCount == 0 {
+		s.noiseFloor = rms
+		s.calibStartTime = time.Now()
+		fmt.Println("[CALIB] Sampling Background Noise... (Please keep silence)")
+	} else {
+		s.noiseFloor = (s.noiseFloor * 0.95) + (rms * 0.05)
+	}
+	s.noiseSampleCount++
+
+	// 采样持续 2 秒
+	if time.Since(s.calibStartTime) > 2*time.Second {
+		// 防止底噪过小导致除零或门限太低 (增加一个安全下限)
+		if s.noiseFloor < 0.0001 {
+			s.noiseFloor = 0.0001
+		}
+
+		// 打印结果并切换状态
+		fmt.Printf("[CALIB] Noise Floor Measured: %.5f\n", s.noiseFloor)
+		fmt.Printf("[CALIB] Setting Signal Threshold to: %.5f (10dB margin)\n", s.noiseFloor*3.16) // 3.16 ≈ 10dB
+		fmt.Println("[CALIB] Ready! Please tune to CW signal...")
+
+		s.calibrationState = StateSignalLock
+		s.calibrationBuffer = nil // 清空 buffer 准备搜台
+	} else {
+		if s.noiseSampleCount%10 == 0 {
+			fmt.Print(".") // 打印进度点
+		}
+	}
+}
+
+// [修改] 阶段二：信号搜索 (原 runCalibration)
+func (s *CWSystem) runSignalSearch(samples []float32) {
+	for _, v := range samples {
+		s.calibrationBuffer = append(s.calibrationBuffer, float64(v))
+	}
+
+	fftSize := s.analyzer.FFTSize
+	if len(s.calibrationBuffer) >= fftSize {
+		// 1. 分析频谱
+		minFreq, maxFreq := 500.0, 900.0
+		freq, rawMag := s.analyzer.FindDominantFrequency(s.calibrationBuffer, minFreq, maxFreq)
+
+		// 归一化幅度
+		normalizedMag := rawMag * 2.0 / float64(fftSize)
+
+		// 2. [核心修改] 使用动态门限！
+		// 门限设为底噪的 3 倍 (约 10dB SNR)
+		// 这样既能灵敏地捕捉信号，又不会被刚才测到的底噪误触发
+		dynamicThreshold := s.noiseFloor * 3.0
+
+		// 如果底噪极低，给一个最小绝对门限兜底，防止误触电路噪声
+		if dynamicThreshold < 0.002 {
+			dynamicThreshold = 0.002
+		}
+
+		if normalizedMag > dynamicThreshold {
+			// 锁定成功！
+			s.decoder.UpdateTargetFreq(freq)
+
+			// 顺便把 Decoder 的初始阈值也根据信号强度设好
+			// 例如设为信号强度的 50%
+			s.decoder.SetThreshold(normalizedMag * 0.5)
+
+			fmt.Printf("\n[LOCKED] Freq: %.1fHz | Signal: %.4f | Threshold: %.4f (SNR: %.1fdB)\n",
+				freq, normalizedMag, dynamicThreshold, 20*math.Log10(normalizedMag/s.noiseFloor))
+
+			s.calibrationState = StateDecoding
+			s.calibrationBuffer = nil
+
+			// 如果恢复了 SpectrumMonitor，这里也应该通知它
+			// s.spectrumMonitor.SetCenterFreq(freq)
+
+			fmt.Println("Decoding started.")
+		} else {
+			// 信号未达到动态门限，继续等待
+			// fmt.Printf("\rSearching... Mag: %.5f / Thresh: %.5f", normalizedMag, dynamicThreshold)
+			s.calibrationBuffer = s.calibrationBuffer[:0]
+		}
 	}
 }
 
@@ -201,6 +319,7 @@ func (s *CWSystem) runCalibration(samples []float32) {
 
 			s.isCalibrated = true
 			s.calibrationBuffer = nil
+			s.calibrationState = StateDecoding
 			fmt.Println("Decoding started. Type text to send.")
 			fmt.Print("> ")
 		} else {
