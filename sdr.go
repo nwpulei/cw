@@ -2,6 +2,7 @@ package cw
 
 import (
 	"cw/Filters"
+	"fmt"
 	"math"
 )
 
@@ -34,8 +35,14 @@ func NewSDRDemodulator(sampleRate, targetFreq float64, cfg *Config) *SDRDemodula
 }
 
 func (s *SDRDemodulator) SetTargetFreq(freq float64) {
-	s.targetFreq = freq // [更新]
-	s.afc.UpdateTargetFreq(freq)
+
+	// 只有当新检测到的频率偏差超过 5Hz 时，才调整 SDR
+	// 避免因为 1-2Hz 的检测误差导致 SDR 反复重置相位
+	if math.Abs(freq-s.targetFreq) > 5.0 {
+		fmt.Printf("[Auto-Tune] Following signal to %.1f Hz\n", freq)
+		s.afc.UpdateTargetFreq(freq)
+	}
+
 	// 滤波器重置代码已被正确移除，保持现状
 }
 
